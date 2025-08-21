@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESP32 Wi-Fi Tool</title>
+    <style>
+        body {
+            background-color: #e6f2ff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+
+        h1 {
+            color: #004080;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        section {
+            margin: 20px auto;
+            max-width: 700px;
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        table, tr, th {
+            border: 1px solid #ccc;
+            border-collapse: collapse;
+            text-align: center;
+            width: 100%;
+        }
+
+        th, td {
+            padding: 10px;
+        }
+
+        tr:hover, tr.selected {
+            background-color: #b3e0ff;
+            cursor: pointer;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button[type="submit"],
+        button[type="button"] {
+            background-color: #ff6666;
+            color: white;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #cc0000;
+        }
+
+        input {
+            padding: 6px;
+            border-radius: 4px;
+            border: 1px solid #aaa;
+        }
+
+        fieldset {
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        legend {
+            font-weight: bold;
+            padding: 0 10px;
+        }
+    </style>
+</head>
+<body onload="getStatus()">
+    <h1>Hi Monica!!</h1>
+
+    <section id="errors"></section>
+    <section id="loading">Loading... Please wait</section>
+
+    <section id="ready" style="display: none;">
+        <fieldset>
+            <legend>Select Target</legend>
+            <table id="ap-list"></table>
+            <p style="text-align: center;"><button type="button" onclick="refreshAps()">Refresh</button></p>
+        </fieldset>
+
+        <fieldset>
+            <legend>Attack Configuration</legend>
+            <form onsubmit="runAttack(); return false;">
+                <p>
+                    <label>Attack Type:</label>
+                    <span style="font-weight: bold;">DoS Attack</span>
+                </p>
+                <p>
+                    <label for="attack_timeout">Attack Timeout (seconds):</label>
+                    <input type="number" min="0" max="255" id="attack_timeout" value="120" required />
+                </p>
+                <p style="text-align: center;">
+                    <button type="submit"> Launch DoS Attack</button>
+                </p>
+            </form>
+        </fieldset>
+    </section>
+
+    <section id="running" style="display: none;">
+        <strong>Time elapsed:</strong> <span id="running-progress"></span>
+    </section>
+
+    <section id="result" style="display: none;">
+        <div id="result-meta">Loading result... Please wait</div>
+        <div id="result-content"></div>
+        <button type="button" onclick="resetAttack()">Start New Attack</button>
+    </section>
+
+    <script>
+        var AttackStateEnum = { READY: 0, RUNNING: 1, FINISHED: 2, TIMEOUT: 3 };
+        var selectedApElement = -1;
+        var poll_interval = 1000;
+        var running_poll_interval = 1000;
+        var attack_timeout = 120;
+        var time_elapsed = 0;
+
+        function getStatus() {
+            var oReq = new XMLHttpRequest();
+            oReq.onload = function () {
+                var arrayBuffer = oReq.response;
+                if (arrayBuffer) {
+                    var attack_state = new Uint8Array(arrayBuffer, 0, 1)[0];
+                    hideAllSections();
+                    switch (attack_state) {
+                        case AttackStateEnum.READY: showAttackConfig(); break;
+                        case AttackStateEnum.RUNNING: showRunning(); setTimeout(getStatus, poll_interval); break;
+                        case AttackStateEnum.FINISHED:
+                        case AttackStateEnum.TIMEOUT: showResult(); break;
+                    }
+                }
+            };
+            oReq.onerror = oReq.ontimeout = function () {
+                getStatus();
+            };
+            oReq.open("GET", "http://192.168.4.1/status", true);
+            oReq.responseType = "arraybuffer";
+            oReq.send();
+        }
+
+        function hideAllSections() {
+            document.querySelectorAll("section").forEach(s => s.style.display = "none");
+        }
+
+        function showRunning() {
+            hideAllSections();
+            document.getElementById("running").style.display = "block";
+        }
+
+        function countProgress() {
+            if (time_elapsed >= attack_timeout) clearInterval(running_poll);
+            document.getElementById("running-progress").textContent = time_elapsed + "/" + attack_timeout + "s";
+            time_elapsed++;
+        }
+
+        function showAttackConfig() {
+            document.getElementById("ready").style.display = "block";
+            refreshAps();
+        }
+
+        function showResult() {
+            hideAllSections();
+            document.getElementById("result").style.display = "block";
+            document.getElementById("result-meta").textContent = "DOS Attack Result (no content)";
+        }
+
+        function refreshAps() {
+            document.getElementById("ap-list").innerHTML = "Loading...";
+            var oReq = new XMLHttpRequest();
+            oReq.onload = function () {
+                document.getElementById("ap-list").innerHTML = "<tr><th>SSID</th><th>BSSID</th><th>RSSI</th></tr>";
+                var byteArray = new Uint8Array(oReq.response);
+                for (let i = 0; i < byteArray.byteLength; i += 40) {
+                    var tr = document.createElement('tr');
+                    tr.id = i / 40;
+                    tr.onclick = function () { selectAp(this); };
+                    var td_ssid = document.createElement('td');
+                    var td_bssid = document.createElement('td');
+                    var td_rssi = document.createElement('td');
+
+                    let ssid_raw = new TextDecoder("utf-8").decode(byteArray.subarray(i, i + 32));
+                    td_ssid.textContent = ssid_raw.replace(/\0/g, '').trim();
+
+                    for (let j = 0; j < 6; j++)
+                        td_bssid.textContent += byteArray[i + 33 + j].toString(16).padStart(2, '0') + (j < 5 ? ":" : "");
+                    td_rssi.textContent = byteArray[i + 39] - 255;
+
+                    tr.append(td_ssid, td_bssid, td_rssi);
+                    document.getElementById("ap-list").appendChild(tr);
+                }
+            };
+            oReq.open("GET", "http://192.168.4.1/ap-list", true);
+            oReq.responseType = "arraybuffer";
+            oReq.send();
+        }
+
+        function selectAp(el) {
+            if (selectedApElement != -1) selectedApElement.classList.remove("selected");
+            selectedApElement = el;
+            el.classList.add("selected");
+        }
+
+        function runAttack() {
+            if (selectedApElement == -1) return;
+            hideAllSections();
+            showRunning();
+            document.getElementById("running").style.display = "block";
+            var buffer = new ArrayBuffer(4);
+            var uint8Array = new Uint8Array(buffer);
+            uint8Array[0] = parseInt(selectedApElement.id);
+            uint8Array[1] = 3; // DoS Attack
+            uint8Array[2] = 1; // Method: broadcast
+            uint8Array[3] = parseInt(document.getElementById("attack_timeout").value);
+            var oReq = new XMLHttpRequest();
+            oReq.open("POST", "http://192.168.4.1/run-attack", true);
+            oReq.send(buffer);
+            attack_timeout = uint8Array[3];
+            time_elapsed = 0;
+            running_poll = setInterval(countProgress, running_poll_interval);
+            setTimeout(getStatus, 1000); // wait 1 second before polling status
+
+        }
+
+        function resetAttack() {
+            hideAllSections();
+            showAttackConfig();
+            var oReq = new XMLHttpRequest();
+            oReq.open("HEAD", "http://192.168.4.1/reset", true);
+            oReq.send();
+        }
+    </script>
+</body>
+</html>
