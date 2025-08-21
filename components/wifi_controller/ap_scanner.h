@@ -1,0 +1,17 @@
+#ifndef AP_SCANNER_H
+#define AP_SCANNER_H
+
+#include "esp_wifi_types.h"
+
+#define CONFIG_SCAN_MAX_AP 20  // or whatever value your project uses
+
+typedef struct {
+    uint16_t count;
+    wifi_ap_record_t records[CONFIG_SCAN_MAX_AP];
+} wifictl_ap_records_t;
+
+void wifictl_scan_nearby_aps();
+const wifictl_ap_records_t *wifictl_get_ap_records();
+const wifi_ap_record_t *wifictl_get_ap_record(uint8_t index);
+
+#endif
