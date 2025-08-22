@@ -1,0 +1,5 @@
+menu "Custom WiFi Config"
+    config ESP_WIFI_ENABLE_TX_80211
+        bool "Enable WiFi 802.11 Tx function"
+        default y
+endmenu
