@@ -1,37 +1,37 @@
 #!/bin/bash
 
-# 🔍 Check if filename was provided
+#Check if filename was provided
 if [ -z "$1" ]; then
-    echo "❌ Missing argument - filename!"
+    echo "Missing argument - filename!"
     echo "Usage: $0 <file.html>"
     exit 1
 fi
 
-# 📄 Input file
+# Input file
 input_file="$1"
 
-# 🧪 Validate file exists
+# Validate file exists
 if [ ! -f "$input_file" ]; then
-    echo "❌ File not found: $input_file"
+    echo "File not found: $input_file"
     exit 1
 fi
 
-# 🧪 Ensure it's an HTML file
+# Ensure it's an HTML file
 if [[ "$input_file" != *.html ]]; then
-    echo "❌ Input must be an HTML file"
+    echo "Input must be an HTML file"
     exit 1
 fi
 
-# 🏷️ Derive names
+# Derive names
 basename_no_ext=$(basename "$input_file" .html)
 gzip_file="page_${basename_no_ext}.gz"
 header_file="page_${basename_no_ext}.h"
 macro_guard="PAGE_${basename_no_ext^^}_H"
 
-# 📦 Compress HTML using gzip
+# Compress HTML using gzip
 gzip -c -9 "$input_file" > "$gzip_file"
 
-# ✅ Generate header file
+# Generate header file
 echo "🔧 Generating header file: $header_file"
 
 {
@@ -48,12 +48,13 @@ echo "🔧 Generating header file: $header_file"
     echo "#endif  // $macro_guard"
 } > "$header_file"
 
-# 🧹 Clean up temporary gzip file
+#Clean up temporary gzip file
 rm -f "$gzip_file"
 
-# 📁 Move to pages folder
+#Move to pages folder
 pages_dir="../pages"
 mkdir -p "$pages_dir"
 mv "$header_file" "$pages_dir/"
 
 echo "✅ Header generated: $pages_dir/$header_file"
+
